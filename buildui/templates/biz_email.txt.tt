@@ -1,0 +1,12 @@
+All,
+
+The new Widget [% componentname %] [% version %] is currently available for production deployment.
+Please find additional information below and let me know if you have any
+questions or comments. Thank you very much.
+
+SCC Admin URL(s):
+http://tmc01-us.dc1.tumri.net:9080/ServiceControllerConsole/widgetadmin
+
+Note(s):  
+[% notes %]
+

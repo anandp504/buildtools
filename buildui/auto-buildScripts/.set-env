@@ -1,0 +1,134 @@
+# set various .profile related environment variables
+
+export GRAILS_HOME=/opt/grails/default
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:$GRAILS_HOME/bin
+
+uname=`uname`
+triplet=`/bin/sh $HOME/bin/scripts/config.guess 2>/dev/null`
+if [ "$triplet" == "" ]
+then
+	triplet=unknown
+fi
+
+# Use Sun's java via $PATH, rather than /etc/alternatives for now.
+
+case $uname in
+Linux)
+	if test -d /usr/java/default/bin
+	then
+		PATH=/usr/java/default/bin:$PATH
+	elif test -d /usr/java/jdk/bin
+	then
+		PATH=/usr/java/jdk/bin:$PATH
+	elif test -d /opt/jdk/bin
+	then
+		PATH=/opt/jdk/bin:$PATH
+	fi
+	;;
+
+SunOS)
+	PATH=$PATH:/usr/ccs/bin
+	;;
+
+*)
+	;;
+esac
+
+# $HOME stuff
+
+case $uname in
+Linux)
+	case $triplet in
+	x86_64-*-linux*)
+		PATH=$HOME/bin/x64-linux:$PATH
+		;;
+	i?86-*-linux*)
+		PATH=$HOME/bin/i386-linux:$PATH
+		;;
+	default)
+		echo "set-env: unknown triplet: $triplet"
+		;;
+	esac
+	;;
+
+SunOS)
+	PATH=$HOME/bin/sparc-solaris:$PATH
+	;;
+
+Darwin)
+	# macport (http://trac.macosforge.org/projects/macports/wiki/InstallingMacPorts)
+	PATH=$PATH:/opt/local/bin:/opt/local/sbin
+	case $triplet in
+	i?86-*-darwin*)
+		PATH=$HOME/bin/i386-darwin:$PATH
+		;;
+	default)
+		echo "set-env: unknown triplet: $triplet"
+		;;
+	esac
+	;;
+
+*)
+	;;
+esac
+
+PATH=$HOME/bin/scripts:$PATH
+
+#if [ -f /lib/libc.so.6 ] ; then
+#	PATH=$PATH:$HOME/codefusion-990706/bin:$HOME/codefusion-990706/snavigator/bin
+#	LD_PRELOAD=$HOME/codefusion-990706/lib/gcc-lib/i686-pc-linux-gnulibc2.1/2.9-codefusion-990706/libeh.so
+#	LD_LIBRARY_PATH=$HOME/codefusion-990706/lib
+#	export LD_PRELOAD LD_LIBRARY_PATH
+#fi
+
+export PATH
+
+MANPATH=$HOME/rel/man:/usr/local/man:/usr/share/man:/usr/man:/usr/X11R6/man
+export MANPATH
+
+# No longer set by default.
+#MAILCHECK=600
+#export MAIL
+
+# New location
+#MAIL=/transmeta/mail/dje/mail
+#export MAIL
+
+# Perforce stuffs
+#export P4PASSWD=''
+export P4HOST=`hostname`
+echo buildTuMrI | p4 login
+# Change p4 client based on current directory.
+export P4CONFIG=.p4config
+
+# Other random env vars.
+case $uname in
+Linux)
+	if test -d /usr/java/default
+	then
+		export JAVA_HOME=/usr/java/default
+	elif test -d /usr/java/jdk
+	then
+		export JAVA_HOME=/usr/java/jdk
+	elif test -d /opt/jdk
+	then
+		export JAVA_HOME=/opt/jdk
+	fi
+
+	# This is passed to perforce via the dp4 alias.
+	# export P4CLIENT_DEFAULT=dje-fc
+	export P4CLIENT_DEFAULT=autobuild-build01-nightly
+	;;
+
+Darwin)
+	# This is passed to perforce via the dp4 alias.
+	# export P4CLIENT_DEFAULT=dje-mbpi
+	export P4CLIENT_DEFAULT=autobuild-build01-nightly
+	;;
+
+*)
+	;;
+esac
+
+# Get rid of case insensitive sort order.
+export LC_COLLATE=C

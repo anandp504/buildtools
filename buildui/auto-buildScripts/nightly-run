@@ -1,0 +1,175 @@
+#! /bin/sh
+# Run ics+joz from the last passing nightly build.
+#
+# Usage: nightly-run /top/of/build/tree
+#
+# WARNING: Try not to make assumptions of cwd if you don't have to.
+
+me=nightly-run
+success_msg="has succeeded."		# To be displayed on email's subject line.
+email_addr="autobuild@tumri.com"
+
+if [ $# != 1 ]
+then
+    echo "Usage: $me /top/of/build/tree" >&2
+    exit 1
+fi
+
+topdir=$1
+build_nr=`cd $topdir/passed && ls -1 | tail -1`
+build_dir=$topdir/builds/${build_nr}
+
+umask 002
+cd $topdir
+
+# Print a failure notice so that it stands out.
+
+fail_msg() {
+    echo "" >&2
+    echo "**** $1 ****" >&2
+    echo "" >&2
+    success_msg="has failed."
+}
+
+# Fail if the build isn't there or didn't pass.
+
+if [ ! -f ${build_dir}/.passed ]
+then
+    fail_msg "$me: build ${build_nr} not present or it didn't pass"
+    exit 1
+fi
+
+# Kill a process.
+# Usage: kill_process pid name
+
+kill_process() {
+    pid=$1
+    name=$2
+
+    # ensure process is running, don't want to kill the wrong task if the
+    # pid has been recycled
+    if ps $pid 2>&1 | grep $name >/dev/null 2>&1
+    then
+	true ;# process is running
+    else
+	# process not running, done
+	return
+    fi
+
+    kill `cat jboss.pid` >/dev/null 2>&1
+    for t in 1 2 3 4 5
+    do
+	if ps $pid >/dev/null 2>&1
+	then
+	    # process gone, good
+	    break
+	fi
+	sleep 5
+    done
+      
+    if ps $pid >/dev/null 2>&1
+    then
+	true ;# process gone, good
+    else
+	fail_msg "unable to kill process $pid"
+	exit 1
+    fi
+}
+
+# If anything fails from here on in the build itself is said to have failed,
+# so update the build number in the exit trap (trap 0).  Also handled by the
+# exit trap is mailing the results.
+
+# Send shell stdout,stderr to a file.
+exec 1>>$build_dir/run-output.log
+exec 2>&1
+
+trap "echo \"=== RUN ENDED \`date\` ===\" ; mail -s \"nightly run ${build_dir} $success_msg\" $email_addr < $build_dir/run-output.log" 0
+
+echo "=== RUN STARTED `date` ==="
+
+# Finish setting up the build tree.
+
+echo "`date`: Finishing setting up the build tree ..."
+
+[ -d ${build_dir}/rel/error-logs ] || mkdir ${build_dir}/rel/error-logs
+[ -d ${build_dir}/rel/event-logs ] || mkdir ${build_dir}/rel/event-logs
+cp $topdir/nightly-tomcat-server.xml ${build_dir}/rel/tomcat/conf/server-nightly.xml
+[ -d ${build_dir}/rel/tomcat/data ] || mkdir ${build_dir}/rel/tomcat/data
+ln -sf ../../../../../data/inputs-us ${build_dir}/rel/tomcat/data/joz
+
+if [ ! -d ${build_dir}/rel/error-logs ]
+then
+    fail_msg "unable to create ${build_dir}/rel/error-logs"
+    exit 1
+fi
+
+if [ ! -d ${build_dir}/rel/event-logs ]
+then
+    fail_msg "unable to create ${build_dir}/rel/event-logs"
+    exit 1
+fi
+
+if [ ! -d ${build_dir}/rel/tomcat/data ]
+then
+    fail_msg "unable to create ${build_dir}/rel/tomcat/data"
+    exit 1
+fi
+
+# Kill any existing build.
+
+echo "`date`: Killing any existing servers ..."
+
+# First try the clean way.
+sh ${build_dir}/rel/jboss/bin/shutdown.sh --shutdown
+
+# First try the clean way.
+sh ${build_dir}/rel/tomcat/bin/catalina.sh stop -config conf/server-nightly.xml
+
+# Give a bit of extra time for servers to shut down.
+sleep 20
+
+# TODO: If clean shutdown fails, try something more drastic.
+
+# Start joz.
+
+echo "`date`: Starting joz ..."
+
+# Apps seem to have a convention of starting the server in a sibling of conf.
+cd ${build_dir}/rel/tomcat/temp
+
+# Installation sanity check.
+if [ ! -f ../conf/server-nightly.xml ]
+then
+    fail_msg "joz installation sanity check failed"
+    exit 1
+fi
+
+rm -f ${build_dir}/rel/tomcat/run.log
+
+JAVA_OPTS="-Xms512m -Xmx512m" \
+CATALINA_PID=${topdir}/tomcat.pid \
+  nohup sh ../bin/catalina.sh run -config conf/server-nightly.xml \
+  > ${build_dir}/rel/tomcat/run.log 2>&1 &
+
+# Start ics.
+
+echo "`date`: Starting ics ..."
+
+# Apps seem to have a convention of starting the server in a sibling of conf.
+cd ${build_dir}/rel/jboss/bin
+
+rm -f ${build_dir}/rel/jboss/run.log
+
+nohup sh ../bin/run.sh > ${build_dir}/rel/jboss/run.log 2>&1 &
+
+# At this point we've passed.  Now just some final clean-up.
+
+rm -f $build_dir/.running
+touch $build_dir/.running
+
+# Done, I think.
+
+echo "`date`: run of $build_dir_name successful"
+
+exit 0

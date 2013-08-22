@@ -1,0 +1,24 @@
+Hi,
+
+The official release package of [% componentname %] [% version %] is good to go. 
+
+Location(s): Under the SCM Repo.
+
+URL:   http:[% releaseurl %]
+
+UNC:   build01.dev.tumri.net:[% releasedir %]
+
+Libraries Used:
+      [% library1 %]
+      [% library2 %]
+      [% library3 %]
+      [% library4 %]
+      [% library5 %]
+      [% library6 %]
+      [% library7 %]
+      [% library8 %]
+
+Notes: 
+
+[% notes %]
+

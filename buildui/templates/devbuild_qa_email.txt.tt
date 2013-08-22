@@ -1,0 +1,34 @@
+Hi SQA and All,
+
+A new dev build of [% componentname %] is currently available for
+testing.
+
+Please find additional information below.
+
+Build Purpose: This is a dev build of [% componentname %] [% version %] targeted
+for internal testing and will not go for any production deployment.
+
+Test Host(s): The installations are to be performed by the SQA team.
+
+Build Locations: Under the SCM Repo area.
+
+URL:   http:[% stagingurl %]
+
+UNC:   build01.dev.tumri.net:[% stagingdir %]
+
+Build Information:
+      Build Version: [% version %]
+      P4 Label: [% label %]
+
+Built using Libraries:
+      [% library1 %]
+      [% library2 %]
+      [% library3 %]
+      [% library4 %]
+      [% library5 %]
+      [% library6 %]
+      [% library7 %]
+      [% library8 %]
+
+Note(s):
+[% notes %]

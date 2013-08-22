@@ -1,0 +1,9 @@
+All Engg,
+
+Version [% version %] of the [% componentname %] library has been released. 
+It is available at: [% location %] .
+
+Notes: 
+
+[% notes %]
+

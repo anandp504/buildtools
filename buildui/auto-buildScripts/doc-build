@@ -1,0 +1,254 @@
+#! /bin/sh
+# Perform a doc build/test run.
+#
+# Usage: doc-build /top/of/build/tree
+#
+# The build tree must already be initialized:
+# - .p4config must exist
+# - .initialized must exist
+# - buildconf.properties must exist
+#
+# WARNING: Try not to make assumptions of cwd if you don't have to.
+
+me=doc-build
+success_msg="has succeeded."			# to be displayed on the email's subject line.
+email_addr="autobuild@tumri.com"
+#email_addr="ajayv@tumri.com"
+
+if [ $# != 1 ]
+then
+    echo "Usage: $me /top/of/build/tree" >&2
+    exit 1
+fi
+
+topdir=$1
+
+umask 002
+cd $topdir
+
+# Print a failure notice so that it stands out.
+
+fail_msg() {
+    echo "" >&2
+    echo "**** $1 ****" >&2
+    echo "" >&2
+    success_msg="has failed."
+}
+
+# Update the passed/failed dirs which are a set of symlinks.
+
+update_symlinks() {
+    test -d $topdir/passed || mkdir $topdir/passed
+    test -d $topdir/failed || mkdir $topdir/failed
+    rm -f $topdir/passed/* $topdir/failed/*
+    for f in $(cd $topdir && echo builds/*/.passed)
+    do
+	b=$(echo $f | sed -e 's,builds/,,' -e 's,/[.]passed,,')
+	ln -s ../builds/$b $topdir/passed/$b
+    done
+    for f in $(cd $topdir && echo builds/*/.failed)
+    do
+	b=$(echo $f | sed -e 's,builds/,,' -e 's,/[.]failed,,')
+	ln -s ../builds/$b $topdir/failed/$b
+    done
+}
+
+# Fail if we don't have sufficient access.
+
+rm -f access-test
+touch access-test >/dev/null 2>&1
+if [ $? != 0 ]
+then
+    fail_msg "$me: insufficient access to $topdir"
+    exit 1
+fi
+rm -f access-test
+
+# Fail if this tree hasn't been initialized yet.
+
+if [ ! -f .p4config ]
+then
+    fail_msg "$me: .p4config not set up"
+    exit 1
+fi
+if [ ! -f $topdir/buildconf.properties ]
+then
+    fail_msg "$me: buildconf.properties missing"
+    exit 1
+fi
+if [ ! -f .initialized ]
+then
+    fail_msg "$me: tree not initialized: $topdir"
+    exit 1
+fi
+
+# Get the next build number.
+
+last_build=$(cat .last-build 2>/dev/null)
+if [ -z "$last_build" ]
+then
+    build=1
+else
+    build=$(($last_build + 1))
+fi
+
+# Clean the old dirs before taking up the new docs build
+rm -rf $topdir/builds/* > /dev/null 2>&1
+
+# Initialize the build directory.
+
+build_dir_name=$(printf "%04d" $build)
+build_dir=$topdir/builds/$build_dir_name
+rm -rf $build_dir
+mkdir -p $build_dir
+touch $build_dir/.starting
+# assume it'll fail, changed to passing if we complete
+touch $build_dir/.failed
+if [ ! -f $build_dir/.starting -o ! -f $build_dir/.failed ]
+then
+    fail_msg "$me: unable to initialize build directory $build_dir"
+    exit 1
+fi
+
+# If anything fails from here on in the build itself is said to have failed,
+# so update the build number in the exit trap (trap 0).  Also handled by the
+# exit trap is mailing the results.
+
+# Send shell stdout,stderr to a file.
+exec 1>$build_dir/output.log
+exec 2>&1
+
+trap "echo $build > $topdir/.last-build ; update_symlinks ; echo \"=== BUILD ENDED \`date\` ===\" ; mail -s \"doc build $build_dir_name $success_msg\" $email_addr < $build_dir/output.log" 0
+
+echo "=== BUILD STARTED `date` ==="
+
+# Prune old builds.
+
+# No point in keeping too many doc builds around.
+# NOTE: We must at least keep the latest passing build.
+# ??? A better method is to decide what to delete based on available disk
+# space.  However that's more applicable to a unitasked machine.
+nr_keep_failed=2
+nr_keep_passed=2
+
+# Add one extra for the "failed" bids to include the build in progress.
+fail_tail_arg=$((${nr_keep_failed} + 1 + 1))
+pass_tail_arg=$((${nr_keep_passed} + 1))
+
+failed_builds_to_delete=$(ls -1rd $topdir/builds/*/.failed | tail --lines=+${fail_tail_arg})
+passed_builds_to_delete=$(ls -1rd $topdir/builds/*/.passed | tail --lines=+${pass_tail_arg})
+
+for d in ${failed_builds_to_delete} ${passed_builds_to_delete}
+do
+    dir=$(dirname $d)
+    # If a .keep marker exists, someone is requesting we keep it until
+    # they remove the marker.
+    if [ -f $dir/.keep ]
+    then
+	: keep this one
+    else
+	echo "`date`: pruning old build $dir"
+	rm -rf $dir
+    fi
+done
+
+# Check out the tree.
+# FIXME: We want each build tree to have its own source.
+# That seems to mean we need a different p4 client for each build.  Blech.
+# Instead we always sync to one directory, and then copy that directory
+# to the build tree.
+
+echo "`date`: Checking out tree ..."
+
+P4CONFIG=.p4config ; export P4CONFIG
+
+p4 sync >& $build_dir/sync.log
+if [ $? != 0 ]
+then
+    fail_msg "$me: p4 sync failed, check sync.log"
+    exit 1
+fi
+
+cp -a $topdir/depot $build_dir
+if [ $? != 0 ]
+then
+    fail_msg "$me: unable to copy depot to build tree"
+    exit 1
+fi
+
+# Copy in third party s/w that we're going to need.
+# It is done this way so that multiple nightly builds may co-exist.
+
+# For now there is none.
+#echo "`date`: Setting up third party s/w ..."
+
+mkdir $build_dir/rel
+
+# Configure, build, install.
+# ??? Sigh.  It would be nice if we didn't build in the source tree
+# (i.e. could tree it as living on a read-only file system).
+
+echo "`date`: Configuring tree ..."
+
+if [ ! -f depot/Tumri/build/build.xml ]
+then
+    fail_msg "$me: something wrong with source tree, build.xml missing"
+    exit 1
+fi
+
+cd $build_dir/depot/Tumri
+rm -f buildconf.in configure.log build.log install.log
+
+sed -e "s/@build@/$build_dir_name/" < $topdir/buildconf.properties > buildconf.in
+
+ant -f build/build.xml \
+    -Dwith.buildconf.properties=buildconf.in \
+    configure \
+    > configure.log 2>&1
+if [ $? != 0 ]
+then
+    fail_msg "$me: configure failed, check configure.log"
+    exit 1
+fi
+
+echo "`date`: Building docs ..."
+
+# FIXME: caa should be ready to add here
+ant -f build/build.xml build-doc-llc build-doc-lls build-doc-jcl build-doc-tas-utils build-doc-cma build-doc-joz > build.log 2>&1
+if [ $? != 0 ]
+then
+    fail_msg "$me: build failed, check build.log"
+    exit 1
+fi
+
+echo "`date`: Installing docs ..."
+
+# FIXME: caa should be ready to add here
+ant -f build/build.xml install-doc-llc install-doc-lls install-doc-jcl install-doc-tas-utils install-doc-cma install-doc-joz > install.log 2>&1
+if [ $? != 0 ]
+then
+    fail_msg "$me: install failed, check install.log"
+    exit 1
+fi
+
+# Put the docs in a publically accessible place.
+
+rsync -e "ssh -i $HOME/.ssh/id-for-rsync" -av --delete $build_dir/rel/doc alexandria.corp.tumri.net:/var/www/html/tumridoc/nightly > rsync.log 2>&1
+
+# At this point we've passed.  Now just some final clean-up.
+
+rm -f $build_dir/.failed
+touch $build_dir/.passed
+
+# Update the "latest" symlink to the last passing build.
+# passed/failed symlinks are handled by the exit trap.
+
+rm -f $topdir/latest
+ln -s builds/$build_dir_name $topdir/latest
+
+# Done, I think.
+# No need to update build number, the trap does it (grep for trap above).
+
+echo "`date`: build $build_dir_name successful"
+
+exit 0

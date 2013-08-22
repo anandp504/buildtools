@@ -1,0 +1,153 @@
+<project name="Build Tools" default="build" basedir="..">
+
+	<property name="root.dir" value="." />
+
+    <property name="buildconf.properties" value="../../buildconf.properties"/>
+
+	<property file="./build/build.properties" />
+	<property name="template.dir" value="${root.dir}/buildui/templates"/>
+
+	<target name="prepare">
+		<mkdir dir="${dist.dir}" />
+		<mkdir dir="${stage.classes.dir}" />
+	</target>
+
+	<target name="clean">
+		<delete dir="${stage.dir}" />
+		<delete dir="${dist.dir}" />
+	</target>
+
+	<target name="compile" depends="prepare">
+		<javac destdir="${stage.classes.dir}"
+		       debug="on">
+			<src path="${src.dir}" />
+		</javac>
+	</target>
+
+	<target name="create-jar" depends="compile">
+		<jar destfile="${dist.dir}/buildtools.jar" compress="true" update="false" manifest="${config.dir}/Manifest.MF">
+			<fileset dir="${stage.classes.dir}">
+				<include name="**/**" />
+			</fileset>
+		</jar>
+        <copy file="${dist.dir}/buildtools.jar" tofile="buildui/lib/buildtools.jar"/>
+	</target>
+
+	<target name="create-war" description="calls the grails ant script">
+        <copy file="${shared.lib}/commons-codec-1.3.jar" tofile="buildui/lib/commons-codec-1.3.jar"/>
+        <delete file="buildui/buildui.war"/>
+        <ant dir="buildui" antfile="build.xml" target="war"/>
+        <move tofile="buildui/buildui.war">
+            <fileset dir="buildui">
+                <include name="buildui*.war"/>
+            </fileset>
+        </move>
+	</target>
+
+    <target name="build" depends="create-jar,create-war,version,dist" description="Default target to execute"/>
+
+    <target name="dist" description="Create the dist package to be used for top level installation">
+        <loadproperties srcfile="${root.dir}/build/buildui_version.properties"/>
+        <property name="package.name" value="${product_name}-${build_version}"/>
+        <property name="package.dir" value="${dist.dir}/package"/>
+        <property name="package.tmp.dir" value="${dist.dir}/${package.name}"/>
+        <delete dir="${package.tmp.dir}"/>
+        <!-- Create subdirectories -->
+        <mkdir dir="${package.dir}"/>
+        <mkdir dir="${package.tmp.dir}"/>
+        <mkdir dir="${package.tmp.dir}/webapps"/>
+        <mkdir dir="${package.tmp.dir}/conf"/>
+        <mkdir dir="${package.tmp.dir}/common/lib"/>
+        <mkdir dir="${package.tmp.dir}/scripts"/>
+        <mkdir dir="${package.tmp.dir}/data"/>
+
+	<copy todir="${package.tmp.dir}/data">
+		<fileset dir="${template.dir}">
+		   <include name="**/*"/>
+		</fileset>
+	</copy>
+        <copy file="${src.dir}/conf/buildui.properties.template" tofile="${package.tmp.dir}/conf/buildui.properties"/>
+        <copy todir="${package.tmp.dir}/conf">
+            <fileset dir="${src.dir}/conf">
+                <include name="LlsLog4j.xml"/>
+            </fileset>
+            <fileset dir="${root.dir}/tomcat/conf">
+                <include name="server.xml"/>
+            </fileset>
+        </copy>
+        <copy file="buildui/buildui.war" todir="${package.tmp.dir}/webapps"/>
+        <copy todir="${package.tmp.dir}/scripts">
+            <fileset dir="buildui/scripts">
+                <include name="**"/>
+            </fileset>
+        </copy>
+        
+        <copy file="${root.dir}/conf/ldap.ks" todir="${package.tmp.dir}/conf"/>
+        <tstamp>
+		<format property="build.time" pattern="yyyy-MM-dd HH:mm z" locale="en,US"/>
+	</tstamp>
+        <echo file="${package.tmp.dir}/conf/buildui_version.properties"># Build version and time information${line.separator}build.time=${build.time}${line.separator}build.version=${build_version}</echo>
+        <copy file="${src.dir}/conf/local.properties" todir="${package.dir}"/>
+    	<!-- Create a single tgz file and delete the package directory -->
+        <tar tarfile="${package.tmp.dir}/${package.name}.tar" basedir="${package.tmp.dir}"/>
+        <gzip zipfile="${package.dir}/${package.name}.tar.gz" src="${package.tmp.dir}/${package.name}.tar"/>
+        <delete dir="${package.tmp.dir}"/>
+
+    	<!-- Copy buildtools.jar and start/stop service scripts. -->
+        <mkdir dir="${dist.dir}/${product_name}-install-${build_version}/bin"/>
+        <mkdir dir="${dist.dir}/${product_name}-install-${build_version}/lib"/>
+		<copy file="${root.dir}/../buildtools/dist/buildtools.jar" todir="${dist.dir}/${product_name}-install-${build_version}/lib"/>
+		<copy todir="${dist.dir}/${product_name}-install-${build_version}/bin" overwrite="yes" preservelastmodified="true">
+			<fileset dir="${root.dir}/install/bin"/>
+		</copy>
+		<tar tarfile="${dist.dir}/${product_name}-install-${build_version}.tar" basedir="${dist.dir}/${product_name}-install-${build_version}"/>
+		<gzip zipfile="${package.dir}/${product_name}-install-${build_version}.tar.gz" src="${dist.dir}/${product_name}-install-${build_version}.tar"/>
+    	<delete file="${dist.dir}/${product_name}-install-${build_version}.tar"/>
+    	<delete dir="${dist.dir}/${product_name}-install-${build_version}"/>
+
+    	<copy file="${root.dir}/install/install.xml" todir="${package.dir}"/>
+		<copy file="${root.dir}/install/install.properties" todir="${package.dir}"/>
+    	<replace file="${package.dir}/install.properties" token="@version@" value="${build_version}"/>
+    </target>
+
+    <target name="version" description="generate product version information">
+        <property file="${root.dir}/build/buildui_version.properties" />
+        <!-- Copy *_version.properties over and create a label file. -->
+        <copy
+            file="${root.dir}/build/${version_properties_file_src}"
+            tofile="${dist.dir}/${version_properties_file_dest}" />
+        <touch file="${dist.dir}/${label_file}" />
+        <echo file="${dist.dir}/${label_file}"># code_label=${code_label}${line.separator} </echo>
+
+        <!-- Replace all variables in the *_version.properties with actual values. -->
+        <replace file="${dist.dir}/${version_properties_file_dest}" >
+            <replacefilter token="{" value="@" />
+            <replacefilter token="}" value="@" />
+        </replace>
+        <replace file="${dist.dir}/${version_properties_file_dest}" >
+            <replacefilter token="$@major_number@" value="${major_number}" />
+            <replacefilter token="$@minor_number@" value="${minor_number}" />
+            <replacefilter token="$@maintenance_number@" value="${maintenance_number}" />
+            <replacefilter token="$@build_number@" value="${build_number}" />
+            <replacefilter token="$@release_id@" value="${release_id}" />
+            <replacefilter token="$@release_candidate@" value="${release_candidate}" />
+            <replacefilter token="$@code_label@" value="${code_label}"	/>
+        </replace>
+    </target>
+
+    <target name="top-buildinit" depends="create-jar"/>
+
+    <target name="top-clean" depends="clean"/>
+
+    <target name="top-build" depends="build"/>
+
+    <target name="top-install"/>
+
+    <target name="top-build-doc"/>
+
+    <target name="top-install-doc"/>
+
+    <target name="top-run-tests"/>
+    
+
+</project>
